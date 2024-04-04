@@ -11,7 +11,7 @@ pub fn print_hero(hero: &Hero) {
     output.push_str(&surround_with_edge(&hero.name.to_uppercase()));
 
     // Attributes
-    for attribute in &hero.attributes {
+    for attribute in hero.attributes.values() {
         output.push_str(&surround_with_edge(&format!("{}", attribute)));
     }
     output.push_str(&surround_with_edge(""));
@@ -51,7 +51,7 @@ pub fn print_hero(hero: &Hero) {
     output.push_str(&surround_with_edge(""));
 
     // Skill
-    for skill in hero.skill.iter() {
+    for skill in hero.skills.iter() {
         output.push_str(&surround_with_edge(&format!("Skill: {}", skill.name)));
         if skill.description.is_some() {
             output.push_str(&surround_with_edge(skill.description.as_ref().unwrap()));

@@ -1,5 +1,6 @@
 use std::{
-    collections::HashMap,
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap},
     fmt::{Display, Error},
 };
 
@@ -11,7 +12,7 @@ pub struct HeroicFeat {
     pub encounters: Vec<Encounter>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum AttributeType {
     Strength,
     Agility,
@@ -28,6 +29,49 @@ pub enum AttributeType {
 impl Display for AttributeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl PartialOrd for AttributeType {
+    fn partial_cmp(&self, other: &AttributeType) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AttributeType {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self == other {
+            return Ordering::Equal;
+        }
+        match self {
+            AttributeType::Strength => Ordering::Less,
+            AttributeType::Default => Ordering::Greater,
+            AttributeType::Agility => {
+                if other == &AttributeType::Strength {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            AttributeType::Magic => {
+                if other == &AttributeType::Strength || other == &AttributeType::Agility {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            AttributeType::Health => {
+                if other == &AttributeType::Strength
+                    || other == &AttributeType::Agility
+                    || other == &AttributeType::Magic
+                {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            _ => self.to_string().cmp(&other.to_string()),
+        }
     }
 }
 
@@ -117,11 +161,35 @@ impl Display for Effect {
     }
 }
 
+type Result<T> = std::result::Result<T, HeroError>;
+
+#[derive(Debug, Clone)]
+pub enum HeroError {
+    AttributeNotFound,
+    QuantityNegative,
+    ValueNotFound,
+    DuplicateSkill,
+    LevelTooHigh,
+}
+
+impl Display for HeroError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "error updating the Hero stats")
+    }
+}
+
+// #[derive(Debug, Clone)]
+// pub struct AttributeNotFoundError;
+// #[derive(Debug, Clone)]
+// pub struct QuantityNegativeError;
+// #[derive(Debug, Clone)]
+// pub struct ValueNotFoundError;
+
 pub struct Hero {
     pub name: String,
-    pub attributes: Vec<Attribute>,
+    pub attributes: BTreeMap<AttributeType, Attribute>,
     pub heroic_feat: HeroicFeat,
-    pub skill: Vec<Skill>,
+    pub skills: Vec<Skill>,
     pub levels: HashMap<i8, HashMap<String, i8>>,
     pub current_level: i8,
     pub potions: i8,
@@ -129,31 +197,83 @@ pub struct Hero {
 }
 
 impl Hero {
+    pub fn change_attribute_quantity(
+        &mut self,
+        attribute: AttributeType,
+        change_by: i8,
+    ) -> Result<usize> {
+        let attr = self
+            .attributes
+            .get(&attribute)
+            .ok_or(HeroError::AttributeNotFound)?;
+        let quantity = attr.quantity.unwrap_or(0) as i8 + change_by;
+        if quantity < 0 {
+            return Err(HeroError::QuantityNegative);
+        }
+        let quantity = quantity as usize;
+        let new_attr = Attribute {
+            attribute: attribute.clone(),
+            quantity: Some(quantity),
+            value: attr.value,
+        };
+        self.attributes
+            .insert(attribute.clone(), new_attr)
+            .ok_or(HeroError::AttributeNotFound)?;
+
+        Ok(quantity)
+    }
+
+    pub fn add_skill(&mut self, new_skill: Skill) -> Result<()> {
+        for existing_skill in self.skills.iter() {
+            if existing_skill.name == new_skill.name {
+                return Err(HeroError::DuplicateSkill);
+            }
+        }
+        self.skills.push(new_skill);
+        Ok(())
+    }
+
+    pub fn descend_level(&mut self) -> Result<i8> {
+        if self.current_level + 1 > *self.levels.keys().max().unwrap_or(&1) {
+            return Err(HeroError::LevelTooHigh);
+        } else {
+            self.current_level += 1;
+            self.potions += 1;
+            self.encounter_bonus = *self
+                .levels
+                .get(&self.current_level)
+                .ok_or(HeroError::AttributeNotFound)?
+                .get("Encounter Bonus")
+                .ok_or(HeroError::AttributeNotFound)?;
+        }
+        Ok(self.current_level)
+    }
+
     pub fn get_mage() -> Hero {
         Hero {
             name: String::from("Mage"),
-            attributes: vec![
-                Attribute {
+            attributes: BTreeMap::from([
+                (AttributeType::Strength, Attribute {
                     attribute: AttributeType::Strength,
                     quantity: Some(1),
                     ..Default::default()
-                },
-                Attribute{
+                }),
+                (AttributeType::Agility, Attribute{
                     attribute: AttributeType::Agility,
                     quantity: Some(2),
                     ..Default::default()
-                },
-                Attribute{
+                }),
+                (AttributeType::Magic, Attribute{
                     attribute: AttributeType::Magic,
                     quantity: Some(4),
                     ..Default::default()
-                },
-                Attribute{
+                }),
+                (AttributeType::Health, Attribute{
                     attribute: AttributeType::Health,
                     quantity: Some(5),
                     ..Default::default()
-                },
-            ],
+                }),
+            ]),
             heroic_feat: HeroicFeat {
                 name: String::from("MANA CHARGE"),
                 description: String::from("Roll any or all of your dice stored here.\nStore a HEROIC DICE here when you explore or flee. You may store up to two dice at a time."),
@@ -161,7 +281,7 @@ impl Hero {
                     Encounter::Combat, Encounter::Peril
                 ]
             },
-            skill: vec![Skill {
+            skills: vec![Skill {
                 name: String::from("SHIELD AURA"),
                 description: Some(String::from("Prevent HEALTH.")),
                 requirements: None,
@@ -178,28 +298,28 @@ impl Hero {
     pub fn get_caliana() -> Hero {
         Hero {
             name: String::from("Caliana"),
-            attributes: vec![
-                Attribute {
+            attributes: BTreeMap::from([
+                (AttributeType::Strength, Attribute {
                     attribute: AttributeType::Strength,
                     quantity: Some(1),
                     ..Default::default()
-                },
-                Attribute{
+                }),
+                (AttributeType::Agility, Attribute{
                     attribute: AttributeType::Agility,
                     quantity: Some(1),
                     ..Default::default()
-                },
-                Attribute{
+                }),
+                (AttributeType::Magic, Attribute{
                     attribute: AttributeType::Magic,
                     quantity: Some(5),
                     ..Default::default()
-                },
-                Attribute{
+                }),
+                (AttributeType::Health, Attribute{
                     attribute: AttributeType::Health,
                     quantity: Some(0),
                     ..Default::default()
-                },
-            ],
+                }),
+            ]),
             heroic_feat: HeroicFeat {
                 name: String::from("WHIMSICALITY"),
                 description: String::from("Convert 3 damage to time each turn (prevent 4 per boss round). If Caliana would take damage, the game ends."),
@@ -207,7 +327,7 @@ impl Hero {
                     Encounter::Combat, Encounter::Peril, Encounter::Boss,
                 ]
             },
-            skill: vec![Skill {
+            skills: vec![Skill {
                 name: String::from("FAERIE FIRE"),
                 description: Some(String::from("Add X x STRENGTH and X x AGILITY.")),
                 requirements: Some(Attribute { attribute: AttributeType::Magic, quantity: Some(1), ..Default::default() }),
@@ -226,22 +346,22 @@ impl Hero {
     pub fn get_paladin() -> Hero {
         Hero {
             name: String::from("Paladin"),
-            attributes: vec![
-                Attribute {attribute: AttributeType::Strength, quantity: Some(3),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Agility, quantity: Some(1),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Magic, quantity: Some(3),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Health, quantity: Some(5),
-                    ..Default::default()},
-            ],
+            attributes: BTreeMap::from([
+                (AttributeType::Strength, Attribute {attribute: AttributeType::Strength, quantity: Some(3),
+                    ..Default::default()}),
+                (AttributeType::Agility, Attribute {attribute: AttributeType::Agility, quantity: Some(1),
+                    ..Default::default()}),
+                (AttributeType::Magic, Attribute {attribute: AttributeType::Magic, quantity: Some(3),
+                    ..Default::default()}),
+                (AttributeType::Health, Attribute {attribute: AttributeType::Health, quantity: Some(5),
+                    ..Default::default()}),
+            ]),
             heroic_feat: HeroicFeat {
                 name: String::from("VALIANT"),
                 description: String::from("Roll any or all of your dice stored here.\nStore a HEROIC DICE here when you open a door with 4+ XP. You may store up to two dice at a time."),
                 encounters: vec![Encounter::Combat, Encounter::Peril],
             },
-            skill: vec![
+            skills: vec![
                 Skill {
                     name: String::from("ARMOR"),
                     description: Some(String::from("For every 2 x HEALTH you would lose, prevent 1 x HEALTH. You cannot prevent damage otherwise.")),
@@ -260,22 +380,22 @@ impl Hero {
     pub fn get_warrior() -> Hero {
         Hero {
             name: String::from("Warrior"),
-            attributes: vec![
-                Attribute {attribute: AttributeType::Strength, quantity: Some(4),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Agility, quantity: Some(2),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Magic, quantity: Some(1),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Health, quantity: Some(6),
-                    ..Default::default()},
-            ],
+            attributes: BTreeMap::from([
+                (AttributeType::Strength, Attribute {attribute: AttributeType::Strength, quantity: Some(4),
+                    ..Default::default()}),
+                (AttributeType::Agility, Attribute {attribute: AttributeType::Agility, quantity: Some(2),
+                    ..Default::default()}),
+                (AttributeType::Magic, Attribute {attribute: AttributeType::Magic, quantity: Some(1),
+                    ..Default::default()}),
+                (AttributeType::Health, Attribute {attribute: AttributeType::Health, quantity: Some(6),
+                    ..Default::default()}),
+            ]),
             heroic_feat: HeroicFeat {
                 name: String::from("FRENZY"),
                 description: String::from("Roll any or all of your dice stored here.\nStore a HEROIC DICE here for each damage you take. You may store up to two dice at a time."),
                 encounters: vec![Encounter::Combat, Encounter::Peril],
             },
-            skill: vec![
+            skills: vec![
                 Skill {
                     name: String::from("SECOND WIND"),
                     description: Some(String::from("When you descend, heal two damage.")),
@@ -294,22 +414,22 @@ impl Hero {
     pub fn get_rogue() -> Hero {
         Hero {
             name: String::from("Rogue"),
-            attributes: vec![
-                Attribute {attribute: AttributeType::Strength, quantity: Some(1),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Agility, quantity: Some(4),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Magic, quantity: Some(2),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Health, quantity: Some(5),
-                    ..Default::default()},
-            ],
+            attributes: BTreeMap::from([
+                (AttributeType::Strength, Attribute {attribute: AttributeType::Strength, quantity: Some(1),
+                    ..Default::default()}),
+                (AttributeType::Agility, Attribute {attribute: AttributeType::Agility, quantity: Some(4),
+                    ..Default::default()}),
+                (AttributeType::Magic, Attribute {attribute: AttributeType::Magic, quantity: Some(2),
+                    ..Default::default()}),
+                (AttributeType::Health, Attribute {attribute: AttributeType::Health, quantity: Some(5),
+                    ..Default::default()}),
+            ]),
             heroic_feat: HeroicFeat {
                 name: String::from("DARING GAMBLE"),
                 description: String::from("Roll one or two MAGIC DICE. If either is a 1, lose 1 x HEALTH and 3 x TIME. Do this before checking any other effects."),
                 encounters: vec![Encounter::Combat, Encounter::Peril],
             },
-            skill: vec![
+            skills: vec![
                 Skill {
                     name: String::from("STEALTH"),
                     description: Some(String::from("When you flee you may add one door to the dungeon, if under the door limit.")),
@@ -329,22 +449,22 @@ impl Hero {
     pub fn get_archer() -> Hero {
         Hero {
             name: String::from("Archer"),
-            attributes: vec![
-                Attribute {attribute: AttributeType::Strength, quantity: Some(2),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Agility, quantity: Some(3),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Magic, quantity: Some(2),
-                    ..Default::default()},
-                Attribute {attribute: AttributeType::Health, quantity: Some(5),
-                    ..Default::default()},
-            ],
+            attributes: BTreeMap::from([
+                (AttributeType::Strength, Attribute {attribute: AttributeType::Strength, quantity: Some(2),
+                    ..Default::default()}),
+                (AttributeType::Agility, Attribute {attribute: AttributeType::Agility, quantity: Some(3),
+                    ..Default::default()}),
+                (AttributeType::Magic, Attribute {attribute: AttributeType::Magic, quantity: Some(2),
+                    ..Default::default()}),
+                (AttributeType::Health, Attribute {attribute: AttributeType::Health, quantity: Some(5),
+                    ..Default::default()}),
+            ]),
             heroic_feat: HeroicFeat {
                 name: String::from("EAGLE EYE"),
                 description: String::from("Spend 2 x TIME to roll 2 x HEROIC DICE or 4 x TIME to roll 3 x HEROIC DICE. Before checking any other effects, discard one of the dice rolled."),
                 encounters: vec![Encounter::Combat, Encounter::Peril],
             },
-            skill: vec![
+            skills: vec![
                 Skill {
                     name: String::from("KITING"),
                     description: Some(String::from("If you would lose only one HEALTH, spend TIME instead. Prevent one HEALTH in each boss round")),
