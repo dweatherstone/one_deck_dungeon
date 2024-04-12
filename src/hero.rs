@@ -123,6 +123,19 @@ pub enum Effect {
     Prevent(AttributeType),
     Discard(AttributeType),
     Heal(usize),
+    Skip(Attribute),
+    Value(i8, AttributeType),
+    Survivor,
+    Ethereal,
+    Dodge,
+    Fade,
+    Swarm,
+    Undying,
+    Split,
+    Frost,
+    Flames,
+    Drain,
+    None,
 }
 
 impl Display for Effect {
@@ -157,6 +170,28 @@ impl Display for Effect {
             Effect::Prevent(at) => write!(f, "Prevent: {}", at),
             Effect::Discard(at) => write!(f, "Discard one {} dice", at),
             Effect::Heal(value) => write!(f, "Heal {} damage", value),
+            Effect::Skip(value) => write!(f, "Skip to the Claim Loot phase for {}", value),
+            Effect::Value(x, attr) => write!(f, "X = {} per {}", x, attr),
+            Effect::Survivor => write!(
+                f,
+                "Survivor: If any armor boxes are empty, discard this instead of looting."
+            ),
+            Effect::Ethereal => write!(f, "Ethereal: Immediately discard all 1s and 3s rolled."),
+            Effect::Dodge => write!(
+                f,
+                "Dodge: Making an HEROIC dice usees three dice instead of two."
+            ),
+            Effect::Fade => write!(f, "Fade: Spend 1 x TIME for each skill you use."),
+            Effect::Swarm => write!(f, "Swarm: X = 4 per open door, including this one."),
+            Effect::Undying => write!(f, "Undying: If any boxes are empty, spend 2 x TIME."),
+            Effect::Split => write!(f, "Split: Spend 1 x TIME for each 1 rolled."),
+            Effect::Frost => write!(f, "Frost: Before the encounter, spend 3 x TIME."),
+            Effect::Flames => write!(
+                f,
+                "Flames: Before the encounter, place 1 x HEALTH on a hero."
+            ),
+            Effect::Drain => write!(f, "Drain: Before the encounter, convert one item to XP."),
+            Effect::None => write!(f, "No effect"),
         }
     }
 }
